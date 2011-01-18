@@ -307,22 +307,32 @@ def cherokee_find_unpacked():
 
 def cherokee_unpack (latest_local):
     # Unpack
-    exe ("gzip -dc '%s' | tar xfv -" %(latest_local), cd=BUILD_DIR)
+    ret = exe ("gzip -dc '%s' | tar xfv -" %(latest_local), cd=BUILD_DIR)
+    if ret['retcode'] != 0:
+        return None
 
     # Look for the src directory
     return cherokee_find_unpacked()
 
 
 def cherokee_compile (src_dir):
-    exe ("./configure --prefix='%s'" %(PREFIX), cd=src_dir)
-    exe ("make", cd=src_dir)
+    ret = exe ("./configure --prefix='%s'" %(PREFIX), cd=src_dir)
+    if ret['retcode'] != 0:
+        return True
+
+    ret = exe ("make", cd=src_dir)
+    if ret['retcode'] != 0:
+        return True
 
 
 def cherokee_install (src_dir):
     if os.access (PREFIX, os.W_OK):
-        exe ("make install", cd=src_dir)
+        ret = exe ("make install", cd=src_dir)
     else:
-        exe_sudo ("make install", cd=src_dir)
+        ret = exe_sudo ("make install", cd=src_dir)
+
+    if ret['retcode'] != 0:
+        return True
 
 
 def cherokee_set_initd():
@@ -423,14 +433,18 @@ def main():
 
     if start_at <= PHASE_UNPACK:
         src_dir = cherokee_unpack (tar_file)
+        if not src_dir: return
     else:
         src_dir = cherokee_find_unpacked()
+        if not src_dir: return
 
     if start_at <= PHASE_COMPILE:
-        cherokee_compile (src_dir)
+        error = cherokee_compile (src_dir)
+        if error: return
 
     if start_at <= PHASE_INSTALL:
-        cherokee_install (src_dir)
+        error = cherokee_install (src_dir)
+        if error: return
 
     if start_at <= PHASE_INITD:
         cherokee_set_initd()
