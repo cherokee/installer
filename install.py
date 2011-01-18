@@ -468,6 +468,20 @@ def check_prerequisites():
 def process_parameters():
     global start_at
 
+    if '--help' in sys.argv:
+        print ("Cherokee's assisted deployment script:")
+        print ("  USAGE: python install.py [params]")
+        print ("")
+        print ("  Development:")
+        print ("    --from-unpack    Start at the 'unpack' phase")
+        print ("    --from-compile   Start at the 'compilation' phase")
+        print ("    --from-install   Start at the 'install' phase")
+        print ("    --from-initd     Start at the 'initd' phase")
+        print ("    --from-report    Start at the 'report' phase")
+        print ("")
+        print ("Report bugs to: http://bugs.cherokee-project.com/")
+        raise SystemExit
+
     if '--from-unpack' in sys.argv:
         start_at = PHASE_UNPACK
     if '--from-compile' in sys.argv:
