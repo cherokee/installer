@@ -60,6 +60,92 @@ LAUNCHD_PLIST = """\
 </plist>
 """
 
+INITD_SH = """\
+#!/bin/sh -e
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:%(PREFIX)s/sbin:%(PREFIX)s/bin
+
+DAEMON=%(PREFIX)s/sbin/cherokee
+NAME=cherokee
+PIDFILE=%(PREFIX)s/var/run/cherokee.pid
+
+set -e
+test -x $DAEMON || exit 0
+
+case "$1" in
+start)
+   %(PREFIX)s/sbin/cherokee -d
+   ;;
+
+stop)
+   if [ -f $PIDFILE ]; then
+        PID=$(cat $PIDFILE)
+        kill $PID
+   fi
+   ;;
+
+restart)
+   $0 stop
+   sleep 1
+   $0 start
+   ;;
+
+reload|force-reload)
+   printf "Reloading web server: %%s\t" "$NAME"
+   if [ -f $PIDFILE ]; then
+        PID=$(cat $PIDFILE)
+        if ps p $PID | grep $NAME >/dev/null 2>&1; then
+           kill -HUP $PID
+        else
+           echo "PID present, but $NAME not found at PID $PID - Cannot reload"
+           exit 1
+        fi
+   else
+        echo "No PID file present for $NAME - Cannot reload"
+        exit 1
+   fi
+   ;;
+
+status)
+   printf "%%s web server status:\t" "$NAME"
+   if [ -e $PIDFILE ] ; then
+       PROCNAME=$(ps -p $(cat $PIDFILE) -o comm=)
+       if [ "x$PROCNAME" = "x" ]; then
+            printf "Not running, but PID file present \t"
+       else
+            if [ "$PROCNAME" = "$NAME" ]; then
+                 printf "Running\t"
+            else
+                 printf "PID file points to process '%%s', not '%%s'\t" "$PROCNAME" "$NAME"
+            fi
+       fi
+   else
+       if PID=$(pidofproc cherokee); then
+            printf "Running (PID %%s), but PIDFILE not present\t" "$PID"
+       else
+            printf "Not running\t"
+       fi
+   fi
+   ;;
+
+*)
+   N=/etc/init.d/$NAME
+   echo "Usage: $N {start|stop|restart|reload|force-reload|status}" >&2
+   exit 1
+   ;;
+esac
+
+if [ $? = 0 ]; then
+    echo .
+    exit 0
+else
+    echo failed
+    exit 1
+fi
+exit 0
+"""
+
+
 # Globals
 #
 start_at = PHASE_DOWNLOAD
@@ -105,7 +191,7 @@ def exe (cmd, colorer=lambda x: x, cd=None, stdin=None, return_fatal=True):
 
     # Return
     if p.returncode != 0 and return_fatal:
-        print ('\n%s: Could execute: %s' %(red('ERROR'), cmd))
+        print ('\n%s: Could not execute: %s' %(red('ERROR'), cmd))
 
     return {'stdout':  stdout,
             'retcode': p.returncode}
@@ -181,10 +267,22 @@ _root_password = None
 def get_root_password():
     global _root_password
 
-    if not _root_password:
-        _root_password = read_input ("Root password: ")
+    while not _root_password:
+        _root_password = read_input ("root's password: ")
 
     return _root_password
+
+
+def figure_initd_app_level (directory, app, not_found=99):
+    files = [x.lower() for x in os.listdir(directory)]
+    for filename in files:
+        tmp = re.findall (r's(\d+)(.+)', filename)
+        if not tmp: continue
+
+        if tmp[0][1] == app:
+            return tmp[0][0]
+
+    return not_found
 
 
 # Cherokee
@@ -237,6 +335,7 @@ def cherokee_set_initd():
     vars = globals()
     vars.update (locals())
 
+    # MacOS X
     if sys.platform == 'darwin':
         tmp_fp   = os.path.join (BUILD_DIR, "launchd-cherokee.plist")
         plist_fp = os.path.join (PREFIX,    "launchd-cherokee.plist")
@@ -255,6 +354,51 @@ def cherokee_set_initd():
         # Let launchd know about it
         exe_sudo ("launchctl load -w '%s'" %(plist_fp))
         exe_sudo ("launchctl start org.cherokee.webserver")
+        return
+
+    # Init.d
+    if (os.path.isdir ("/etc/init.d") and
+        (os.path.isdir ("/etc/rc2.d") or os.path.isdir ("/etc/init.d/rc2.d"))):
+
+        # Figure rc2.d directory
+        if os.path.isdir ("/etc/rc2.d"):
+            rc2_dir = "/etc/rc2.d"
+        elif os.path.isdir ("/etc/init.d/rc2.d"):
+            rc2_dir = "/etc/init.d/rc2.d"
+        else:
+            assert False, "Unknow layout"
+
+        # Build paths
+        tmp_fp   = os.path.join (BUILD_DIR, "cherokee.initd")
+        sh_fp    = os.path.join (PREFIX,    "cherokee.initd")
+        initd_fp = "/etc/init.d/cherokee-opt"
+
+        # Figure rc2.d file level
+        level = 99
+        for k in ('apache', 'apache2', 'httpd', 'lighttpd', 'nginx'):
+            level = min (level, figure_initd_app_level (rc2_dir, k))
+
+        rc2S_fp = os.path.join (rc2_dir, "S%02dcherkee-opt"%(level-1))
+        rc2K_fp = os.path.join (rc2_dir, "K%02dcherkee-opt"%(level-1))
+
+        # Preliminary clean up
+        exe_sudo ("rm -f '%s' '%s' '%s' '%s' '%s'" %(tmp_fp, sh_fp, initd_fp, rc2S_fp, rc2K_fp))
+
+        # Write the init.d file
+        txt = INITD_SH %(vars)
+        f = open (tmp_fp, 'w+')
+        f.write (txt)
+        f.close()
+
+        # Permissions
+        exe_sudo ("cp '%s' '%s'" %(tmp_fp, sh_fp))
+        exe_sudo ("chown root '%s'" %(sh_fp))
+        exe_sudo ("chmod 755 '%s'"  %(sh_fp))
+
+        # Add it
+        exe_sudo ("ln -s '%s' '%s'" %(sh_fp, initd_fp))   # /etc/init.d/cherokee -> /opt/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2S_fp)) # /etc/rc2.d/S99cherokee  -> /etc/init.d/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2K_fp)) # /etc/rc2.d/K99cherokee  -> /etc/init.d/..
 
 
 def cherokee_report():
