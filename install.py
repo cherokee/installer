@@ -396,14 +396,20 @@ def cherokee_set_initd():
         exe_sudo ("chmod 755 '%s'"  %(sh_fp))
 
         # Add it
-        exe_sudo ("ln -s '%s' '%s'" %(sh_fp, initd_fp))   # /etc/init.d/cherokee -> /opt/..
-        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2S_fp)) # /etc/rc2.d/S99cherokee  -> /etc/init.d/..
-        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2K_fp)) # /etc/rc2.d/K99cherokee  -> /etc/init.d/..
+        exe_sudo ("ln -s '%s' '%s'" %(sh_fp, initd_fp))   # /etc/init.d/cherokee   -> /opt/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2S_fp)) # /etc/rc2.d/S99cherokee -> /etc/init.d/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2K_fp)) # /etc/rc2.d/K99cherokee -> /etc/init.d/..
 
 
 def cherokee_report():
     cherokee_fp = os.path.join (PREFIX, "sbin", "cherokee")
-    exe ("%s -i" %(cherokee_fp), green)
+
+    print (blue ("Technical details:"))
+    exe ("%s -i" %(cherokee_fp))
+
+    print (blue ("How to:"))
+    print (" - Launch manually the server:      %s/sbin/cherokee -d" %(PREFIX))
+    print (" - Launch the administration GUI:   %s/bin/cherokee-admin-launcher" %(PREFIX))
 
 
 
