@@ -37,8 +37,9 @@ PREFIX             = "/opt/cherokee"
 PHASE_DOWNLOAD = 1
 PHASE_UNPACK   = 2
 PHASE_COMPILE  = 3
-PHASE_INITD    = 4
-PHASE_REPORT   = 5
+PHASE_INSTALL  = 4
+PHASE_INITD    = 5
+PHASE_REPORT   = 6
 
 
 # Texts
@@ -48,12 +49,13 @@ LAUNCHD_PLIST = """\
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.octality.cherokee</string>
+  <key>Label</key><string>org.cherokee.webserver</string>
   <key>RunAtLoad</key><true/>
-  <key>WorkingDirectory</key><string>%(PREFIX)s</string>
   <key>ProgramArguments</key><array>
-       <string>sbin/cherokee</string>
+     <string>%(PREFIX)s/sbin/cherokee</string>
   </array>
+  <key>UserName</key>
+  <string>root</string>
 </dict>
 </plist>
 """
@@ -76,12 +78,20 @@ def blue (s):   return ESC + '0;34m' + s + RESET
 
 # Utilities
 #
-def exe (cmd, colorer=lambda x: x, cd=None, return_fatal=True):
+def exe (cmd, colorer=lambda x: x, cd=None, stdin=None, return_fatal=True):
     print (yellow(cmd))
 
     stdout = ''
 
-    p = subprocess.Popen (cmd, shell=True, stdout=subprocess.PIPE, cwd=cd)
+    kwargs = {'shell': True, 'stdout': subprocess.PIPE, 'cwd': cd}
+    if stdin:
+        kwargs['stdin'] = subprocess.PIPE
+
+    p = subprocess.Popen (cmd, **kwargs)
+
+    if stdin:
+        p.stdin.write (stdin)
+
     while True:
         line = p.stdout.readline()
         if not line:
@@ -99,6 +109,11 @@ def exe (cmd, colorer=lambda x: x, cd=None, return_fatal=True):
 
     return {'stdout':  stdout,
             'retcode': p.returncode}
+
+def exe_sudo (cmd, **kwargs):
+    command = "sudo -S " + cmd
+    return exe (command, **kwargs)
+
 
 def which (program):
     def is_exe(fpath):
@@ -158,9 +173,18 @@ def read_yes_no (prompt, empty_is=None):
         if ret in ('y','yes'):
             return True
         if ret in ('n','no'):
-            return True
+            return False
         if not ret and empty_is != None:
             return empty_is
+
+_root_password = None
+def get_root_password():
+    global _root_password
+
+    if not _root_password:
+        _root_password = read_input ("Root password: ")
+
+    return _root_password
 
 
 # Cherokee
@@ -195,10 +219,12 @@ def cherokee_compile (src_dir):
     exe ("./configure --prefix='%s'" %(PREFIX), cd=src_dir)
     exe ("make", cd=src_dir)
 
+
+def cherokee_install (src_dir):
     if os.access (PREFIX, os.W_OK):
         exe ("make install", cd=src_dir)
     else:
-        exe ("sudo make install", cd=src_dir)
+        exe_sudo ("make install", cd=src_dir)
 
 
 def cherokee_set_initd():
@@ -212,17 +238,23 @@ def cherokee_set_initd():
     vars.update (locals())
 
     if sys.platform == 'darwin':
-        plist_fd = os.path.join (PREFIX, "launchd-cherokee.plist")
+        tmp_fp   = os.path.join (BUILD_DIR, "launchd-cherokee.plist")
+        plist_fp = os.path.join (PREFIX,    "launchd-cherokee.plist")
 
         # Write the plist file
         txt = LAUNCHD_PLIST %(vars)
-        f = open (plist_fd, 'w+')
+        f = open (tmp_fp, 'w+')
         f.write (txt)
         f.close()
 
+        # Permissions
+        exe_sudo ("cp '%s' '%s'" %(tmp_fp, plist_fp))
+        exe_sudo ("chown root  '%s'" %(plist_fp))
+        exe_sudo ("chgrp admin '%s'" %(plist_fp))
+
         # Let launchd know about it
-        exe ("launchctl load '%s'" %(plist_fd))
-        exe ("launchctl start cherokee")
+        exe_sudo ("launchctl load -w '%s'" %(plist_fp))
+        exe_sudo ("launchctl start org.cherokee.webserver")
 
 
 def cherokee_report():
@@ -247,6 +279,9 @@ def main():
     if start_at <= PHASE_COMPILE:
         cherokee_compile (src_dir)
 
+    if start_at <= PHASE_INSTALL:
+        cherokee_install (src_dir)
+
     if start_at <= PHASE_INITD:
         cherokee_set_initd()
 
@@ -265,6 +300,8 @@ def process_parameters():
         start_at = PHASE_UNPACK
     if '--from-compile' in sys.argv:
         start_at = PHASE_COMPILE
+    if '--from-install' in sys.argv:
+        start_at = PHASE_INSTALL
     if '--from-initd' in sys.argv:
         start_at = PHASE_INITD
     if '--from-report' in sys.argv:
