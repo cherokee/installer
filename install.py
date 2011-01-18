@@ -316,10 +316,18 @@ def cherokee_unpack (latest_local):
 
 
 def cherokee_compile (src_dir):
-    ret = exe ("./configure --prefix='%s'" %(PREFIX), cd=src_dir)
+    params="--prefix='%s'" %(PREFIX)
+
+    # Look for gettext
+    if not which ("msgfmt"):
+        params += " --enable-nls=no"
+
+    # Configure
+    ret = exe ("./configure " + params, cd=src_dir)
     if ret['retcode'] != 0:
         return True
 
+    # Build
     ret = exe ("make", cd=src_dir)
     if ret['retcode'] != 0:
         return True
