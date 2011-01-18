@@ -30,9 +30,10 @@ import sys
 import glob
 import subprocess
 
-BUILD_DIR          = "/var/tmp/cherokee-build"
-URL_LATEST_RELEASE = "http://www.cherokee-project.com/cherokee-latest-tarball"
-PREFIX             = "/opt/cherokee"
+BUILD_DIR            = "/var/tmp/cherokee-build"
+URL_LATEST_RELEASE   = "http://www.cherokee-project.com/cherokee-latest-tarball"
+URL_SNAPSHOT_RELEASE = "http://www.cherokee-project.com/download/trunk/cherokee-latest-svn.tar.gz"
+PREFIX               = "/opt/cherokee"
 
 PHASE_DOWNLOAD = 1
 PHASE_UNPACK   = 2
@@ -148,7 +149,8 @@ exit 0
 
 # Globals
 #
-start_at = PHASE_DOWNLOAD
+start_at          = PHASE_DOWNLOAD
+download_snapshot = False
 
 
 # ANSI Colors
@@ -295,13 +297,18 @@ def figure_initd_app_level (directory, app, not_found=99):
 # Cherokee
 #
 def cherokee_download (tar_file):
-    latest_local = os.path.join (BUILD_DIR, "cherokee-latest.tar.gz")
-
+    # Clean up
     rm (BUILD_DIR)
     rm (tar_file)
     mkdir (BUILD_DIR)
 
-    download (URL_LATEST_RELEASE, tar_file)
+    # Download
+    if download_snapshot:
+        url = URL_SNAPSHOT_RELEASE
+    else:
+        url = URL_LATEST_RELEASE
+
+    download (url, tar_file)
 
 
 def cherokee_find_unpacked():
@@ -328,6 +335,10 @@ def cherokee_compile (src_dir):
     # Look for gettext
     if not which ("msgfmt"):
         params += " --enable-nls=no"
+
+    # Snaphost
+    if download_snapshot:
+        params += " --enable-beta"
 
     # Configure
     ret = exe ("./configure " + params, cd=src_dir)
@@ -479,6 +490,8 @@ def process_parameters():
         print ("Cherokee's assisted deployment script:")
         print ("  USAGE: python install.py [params]")
         print ("")
+        print ("  --snapshot         Compile latest development snapshot")
+        print ("")
         print ("  Development:")
         print ("    --from-unpack    Start at the 'unpack' phase")
         print ("    --from-compile   Start at the 'compilation' phase")
@@ -489,6 +502,12 @@ def process_parameters():
         print ("Report bugs to: http://bugs.cherokee-project.com/")
         raise SystemExit
 
+    # Snapshot
+    if '--snapshot' in sys.argv:
+        global download_snapshot
+        download_snapshot = True
+
+    # Development
     if '--from-unpack' in sys.argv:
         start_at = PHASE_UNPACK
     if '--from-compile' in sys.argv:
