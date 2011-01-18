@@ -176,7 +176,11 @@ def exe (cmd, colorer=lambda x: x, cd=None, stdin=None, return_fatal=True):
     p = subprocess.Popen (cmd, **kwargs)
 
     if stdin:
-        p.stdin.write (stdin)
+        try:
+            p.stdin.write (stdin)
+            p.stdin.close()
+        except IOError:
+            pass
 
     while True:
         line = p.stdout.readline()
@@ -196,10 +200,23 @@ def exe (cmd, colorer=lambda x: x, cd=None, stdin=None, return_fatal=True):
     return {'stdout':  stdout,
             'retcode': p.returncode}
 
-def exe_sudo (cmd, **kwargs):
-    command = "sudo -S " + cmd
-    return exe (command, **kwargs)
+_root_password = None
+def get_root_password():
+    global _root_password
 
+    while not _root_password:
+        _root_password = read_input ("root's password: ")
+        if _root_password:
+            _root_password += '\n'
+
+    return _root_password
+
+def exe_sudo (cmd, **kwargs):
+    if os.getuid() != 0:
+        root_password = get_root_password()
+        kwargs['stdin'] = root_password
+        command = "sudo -S " + cmd
+    return exe (command, **kwargs)
 
 def which (program):
     def is_exe(fpath):
@@ -262,16 +279,6 @@ def read_yes_no (prompt, empty_is=None):
             return False
         if not ret and empty_is != None:
             return empty_is
-
-_root_password = None
-def get_root_password():
-    global _root_password
-
-    while not _root_password:
-        _root_password = read_input ("root's password: ")
-
-    return _root_password
-
 
 def figure_initd_app_level (directory, app, not_found=99):
     files = [x.lower() for x in os.listdir(directory)]
