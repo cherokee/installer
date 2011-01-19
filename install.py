@@ -33,7 +33,8 @@ import subprocess
 BUILD_DIR            = "/var/tmp/cherokee-build"
 URL_LATEST_RELEASE   = "http://www.cherokee-project.com/cherokee-latest-tarball"
 URL_SNAPSHOT_RELEASE = "http://www.cherokee-project.com/download/trunk/cherokee-latest-svn.tar.gz"
-PREFIX               = "/opt/cherokee"
+PREFIX_STANDARD      = "/opt/cherokee"
+PREFIX_DEVEL         = "/opt/cherokee-dev"
 
 PHASE_DOWNLOAD = 1
 PHASE_UNPACK   = 2
@@ -53,7 +54,7 @@ LAUNCHD_PLIST = """\
   <key>Label</key><string>org.cherokee.webserver</string>
   <key>RunAtLoad</key><true/>
   <key>ProgramArguments</key><array>
-     <string>%(PREFIX)s/sbin/cherokee</string>
+     <string>%(prefix)s/sbin/cherokee</string>
   </array>
   <key>UserName</key>
   <string>root</string>
@@ -64,18 +65,18 @@ LAUNCHD_PLIST = """\
 INITD_SH = """\
 #!/bin/sh -e
 
-PATH=/sbin:/bin:/usr/sbin:/usr/bin:%(PREFIX)s/sbin:%(PREFIX)s/bin
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:%(prefix)s/sbin:%(prefix)s/bin
 
-DAEMON=%(PREFIX)s/sbin/cherokee
+DAEMON=%(prefix)s/sbin/cherokee
 NAME=cherokee
-PIDFILE=%(PREFIX)s/var/run/cherokee.pid
+PIDFILE=%(prefix)s/var/run/cherokee.pid
 
 set -e
 test -x $DAEMON || exit 0
 
 case "$1" in
 start)
-   %(PREFIX)s/sbin/cherokee -d
+   %(prefix)s/sbin/cherokee -d
    ;;
 
 stop)
@@ -149,8 +150,10 @@ exit 0
 
 # Globals
 #
+prefix            = PREFIX_STANDARD
 start_at          = PHASE_DOWNLOAD
 download_snapshot = False
+devel_build       = False
 
 
 # ANSI Colors
@@ -330,7 +333,7 @@ def cherokee_unpack (latest_local):
 
 
 def cherokee_compile (src_dir):
-    params="--prefix='%s'" %(PREFIX)
+    params="--prefix='%s'" %(prefix)
 
     # Look for gettext
     if not which ("msgfmt"):
@@ -339,6 +342,11 @@ def cherokee_compile (src_dir):
     # Snaphost
     if download_snapshot:
         params += " --enable-beta"
+
+    # Trace
+    if devel_build:
+        params += " --enable-trace"
+        params += " CFLAGS='-ggdb -O0'"
 
     # Configure
     ret = exe ("./configure " + params, cd=src_dir)
@@ -352,7 +360,7 @@ def cherokee_compile (src_dir):
 
 
 def cherokee_install (src_dir):
-    if os.access (PREFIX, os.W_OK):
+    if os.access (prefix, os.W_OK):
         ret = exe ("make install", cd=src_dir)
     else:
         ret = exe_sudo ("make install", cd=src_dir)
@@ -374,7 +382,7 @@ def cherokee_set_initd():
     # MacOS X
     if sys.platform == 'darwin':
         tmp_fp   = os.path.join (BUILD_DIR, "launchd-cherokee.plist")
-        plist_fp = os.path.join (PREFIX,    "launchd-cherokee.plist")
+        plist_fp = os.path.join (prefix,    "launchd-cherokee.plist")
 
         # Write the plist file
         txt = LAUNCHD_PLIST %(vars)
@@ -406,7 +414,7 @@ def cherokee_set_initd():
 
         # Build paths
         tmp_fp   = os.path.join (BUILD_DIR, "cherokee.initd")
-        sh_fp    = os.path.join (PREFIX,    "cherokee.initd")
+        sh_fp    = os.path.join (prefix,    "cherokee.initd")
         initd_fp = "/etc/init.d/cherokee-opt"
 
         # Figure rc2.d file level
@@ -438,14 +446,14 @@ def cherokee_set_initd():
 
 
 def cherokee_report():
-    cherokee_fp = os.path.join (PREFIX, "sbin", "cherokee")
+    cherokee_fp = os.path.join (prefix, "sbin", "cherokee")
 
     print (blue ("Technical details:"))
     exe ("%s -i" %(cherokee_fp))
 
     print (blue ("How to:"))
-    print (" - Launch manually the server:      %s/sbin/cherokee -d" %(PREFIX))
-    print (" - Launch the administration GUI:   %s/bin/cherokee-admin-launcher" %(PREFIX))
+    print (" - Launch manually the server:      %s/sbin/cherokee -d" %(prefix))
+    print (" - Launch the administration GUI:   %s/bin/cherokee-admin-launcher" %(prefix))
 
 
 
@@ -485,12 +493,16 @@ def check_prerequisites():
 
 def process_parameters():
     global start_at
+    global download_snapshot
+    global devel_build
+    global prefix
 
     if '--help' in sys.argv:
         print ("Cherokee's assisted deployment script:")
         print ("  USAGE: python install.py [params]")
         print ("")
         print ("  --snapshot         Compile latest development snapshot")
+        print ("  --devel            snapshot w/ debug under cherokee-dev")
         print ("")
         print ("  Development:")
         print ("    --from-unpack    Start at the 'unpack' phase")
@@ -502,12 +514,16 @@ def process_parameters():
         print ("Report bugs to: http://bugs.cherokee-project.com/")
         raise SystemExit
 
-    # Snapshot
+    # Development
     if '--snapshot' in sys.argv:
-        global download_snapshot
         download_snapshot = True
 
-    # Development
+    if '--devel' in sys.argv:
+        devel_build       = True
+        download_snapshot = True
+        prefix            = PREFIX_DEVEL
+
+    # Script development
     if '--from-unpack' in sys.argv:
         start_at = PHASE_UNPACK
     if '--from-compile' in sys.argv:
