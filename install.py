@@ -220,8 +220,8 @@ def exe_sudo (cmd, **kwargs):
     if os.getuid() != 0:
         root_password = get_root_password()
         kwargs['stdin'] = root_password
-        command = "sudo -S " + cmd
-    return exe (command, **kwargs)
+        cmd = "sudo -S " + cmd
+    return exe (cmd, **kwargs)
 
 def which (program):
     def is_exe(fpath):
