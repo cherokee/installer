@@ -488,6 +488,18 @@ def main():
 
 
 def check_prerequisites():
+    # Check for a C compiler
+    if not which("gcc") and not which("cc"):
+        if sys.platform == 'sunos5':
+            cont = read_yes_no ("SUNWgcc must be installed. Proceed? [Y/n] ", True)
+            if not cont:
+                raise SystemExit
+            exe ("pkg install SUNWgcc")
+        else:
+            print ("A C compiler is required")
+            raise SystemExit
+
+    # Check for make
     assert which ("make"), "Make is required for the compilation"
 
 
