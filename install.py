@@ -401,16 +401,29 @@ def cherokee_set_initd():
         return
 
     # Init.d
-    if (os.path.isdir ("/etc/init.d") and
-        (os.path.isdir ("/etc/rc2.d") or os.path.isdir ("/etc/init.d/rc2.d"))):
+    if os.path.isdir ("/etc/init.d"):
+        # Figure runlevel
+        ret = exe ("runlevel")
 
-        # Figure rc2.d directory
-        if os.path.isdir ("/etc/rc2.d"):
-            rc2_dir = "/etc/rc2.d"
-        elif os.path.isdir ("/etc/init.d/rc2.d"):
-            rc2_dir = "/etc/init.d/rc2.d"
-        else:
-            assert False, "Unknow layout"
+        tmp = re.findall (r'(\d+)', ret['stdout'])
+        if not tmp:
+            print ("Could not figure the current runlevel")
+            raise SystemExit
+
+        runlevel = tmp[0]
+
+        # Figure rc<X>.d directory:
+        # /etc/rc2.d
+        # /etc/init.d/rc2.d
+        rc_paths = ('/etc/rc%s.d'%(runlevel), '/etc/init.d/rc%s.d'%(runlevel))
+        rc_dir   = None
+
+        for d in rc_paths:
+            if os.path.isdir (d):
+                rc_dir = d
+                break
+
+        assert rc_dir, "Unknow init.d layout"
 
         # Build paths
         tmp_fp   = os.path.join (BUILD_DIR, "cherokee.initd")
@@ -420,13 +433,13 @@ def cherokee_set_initd():
         # Figure rc2.d file level
         level = 99
         for k in ('apache', 'apache2', 'httpd', 'lighttpd', 'nginx'):
-            level = min (level, figure_initd_app_level (rc2_dir, k))
+            level = min (level, figure_initd_app_level (rc_dir, k))
 
-        rc2S_fp = os.path.join (rc2_dir, "S%02dcherkee-opt"%(level-1))
-        rc2K_fp = os.path.join (rc2_dir, "K%02dcherkee-opt"%(level-1))
+        rcS_fp = os.path.join (rc_dir, "S%02dcherkee-opt"%(level-1))
+        rcK_fp = os.path.join (rc_dir, "K%02dcherkee-opt"%(level-1))
 
         # Preliminary clean up
-        exe_sudo ("rm -f '%s' '%s' '%s' '%s' '%s'" %(tmp_fp, sh_fp, initd_fp, rc2S_fp, rc2K_fp))
+        exe_sudo ("rm -f '%s' '%s' '%s' '%s' '%s'" %(tmp_fp, sh_fp, initd_fp, rcS_fp, rcK_fp))
 
         # Write the init.d file
         txt = INITD_SH %(vars)
@@ -440,9 +453,9 @@ def cherokee_set_initd():
         exe_sudo ("chmod 755 '%s'"  %(sh_fp))
 
         # Add it
-        exe_sudo ("ln -s '%s' '%s'" %(sh_fp, initd_fp))   # /etc/init.d/cherokee   -> /opt/..
-        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2S_fp)) # /etc/rc2.d/S99cherokee -> /etc/init.d/..
-        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rc2K_fp)) # /etc/rc2.d/K99cherokee -> /etc/init.d/..
+        exe_sudo ("ln -s '%s' '%s'" %(sh_fp, initd_fp))  # /etc/init.d/cherokee   -> /opt/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rcS_fp)) # /etc/rc2.d/S99cherokee -> /etc/init.d/..
+        exe_sudo ("ln -s '%s' '%s'" %(initd_fp, rcK_fp)) # /etc/rc2.d/K99cherokee -> /etc/init.d/..
 
 
 def cherokee_report():
