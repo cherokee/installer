@@ -300,6 +300,9 @@ def figure_initd_app_level (directory, app, not_found=99):
 
     return not_found
 
+def make_path():
+    return which("gmake") or which("make")
+
 
 # Cherokee
 #
@@ -350,7 +353,7 @@ def cherokee_compile (src_dir):
     # Trace
     if devel_build:
         params += " --enable-trace"
-        params += " CFLAGS='-ggdb -O0'"
+        params += " CFLAGS='-ggdb3 -O0'"
 
     # Configure
     ret = exe ("./configure " + params, cd=src_dir)
@@ -358,16 +361,16 @@ def cherokee_compile (src_dir):
         return True
 
     # Build
-    ret = exe ("make", cd=src_dir)
+    ret = exe (make_path(), cd=src_dir)
     if ret['retcode'] != 0:
         return True
 
 
 def cherokee_install (src_dir):
     if os.access (prefix, os.W_OK):
-        ret = exe ("make install", cd=src_dir)
+        ret = exe ("%s install" %(make_path()), cd=src_dir)
     else:
-        ret = exe_sudo ("make install", cd=src_dir)
+        ret = exe_sudo ("%s install" %(make_path()), cd=src_dir)
 
     if ret['retcode'] != 0:
         return True
@@ -473,7 +476,6 @@ def cherokee_report():
     print (" - Launch the administration GUI:   %s/bin/cherokee-admin-launcher" %(prefix))
 
 
-
 # Main
 #
 def main():
@@ -524,8 +526,9 @@ def check_prerequisites():
         FATAL_error ("Python is not in the path")
 
     # Check for make
-    if not which ("make"):
-        FATAL_error ("'make' is required for the compilation")
+    if not make_path():
+        FATAL_error ("'make' or 'gmake' is required for the compilation")
+
 
 def process_parameters():
     global start_at
