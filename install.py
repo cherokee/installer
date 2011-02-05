@@ -169,6 +169,10 @@ def blue (s):   return ESC + '0;34m' + s + RESET
 
 # Utilities
 #
+def FATAL_error (error, retcode=1):
+    print (red(error))
+    sys.exit (retcode)
+
 def exe (cmd, colorer=lambda x: x, cd=None, stdin=None, return_fatal=True):
     print (yellow(cmd))
 
@@ -407,8 +411,8 @@ def cherokee_set_initd():
 
         tmp = re.findall (r'(\d+)', ret['stdout'])
         if not tmp:
-            print ("Could not figure the current runlevel")
-            raise SystemExit
+            print (red ("Could not figure the current runlevel. Skiping step."))
+            return
 
         runlevel = tmp[0]
 
@@ -509,12 +513,19 @@ def check_prerequisites():
                 raise SystemExit
             exe ("pkg install SUNWgcc")
         else:
-            print ("A C compiler is required")
-            raise SystemExit
+            FATAL_error ("A C compiler is required")
+
+    # Check for Python
+    if not which("env"):
+        FATAL_error ("'env' is required")
+
+    ret = exe ("env python -V")
+    if ret['retcode'] != 0:
+        FATAL_error ("Python is not in the path")
 
     # Check for make
-    assert which ("make"), "Make is required for the compilation"
-
+    if not which ("make"):
+        FATAL_error ("'make' is required for the compilation")
 
 def process_parameters():
     global start_at
