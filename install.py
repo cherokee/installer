@@ -464,6 +464,7 @@ def cherokee_set_initd():
         exe_sudo ("chgrp admin '%s'" %(plist_fp))
 
         # Let launchd know about it
+        exe_sudo ("launchctl unload -w '%s'" %(plist_fp))
         exe_sudo ("launchctl load -w '%s'" %(plist_fp))
         exe_sudo ("launchctl start org.cherokee.webserver")
         return
