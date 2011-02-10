@@ -2,7 +2,7 @@
 
 # -*- coding: utf-8 -*-
 #
-# Cherokee-admin
+# Cherokee easy-install script
 #
 # Authors:
 #      Alvaro Lopez Ortega <alvaro@alobbs.com>
@@ -28,6 +28,8 @@ import re
 import os
 import sys
 import glob
+import time
+import stat
 import subprocess
 
 BUILD_DIR            = "/var/tmp/cherokee-build"
@@ -60,6 +62,51 @@ LAUNCHD_PLIST = """\
   <string>root</string>
 </dict>
 </plist>
+"""
+
+SOLARIS_SVC = """\
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+
+<service_bundle type='manifest' name='cherokee'>
+  <service name='network/http' type='service' version='1'>
+    <instance name='cherokee' enabled='true'>
+
+      <dependency name='loopback' grouping='require_all' restart_on='error' type='service'>
+	<service_fmri value='svc:/network/loopback:default'/>
+      </dependency>
+
+      <dependency name='physical' grouping='optional_all' restart_on='error' type='service'>
+	<service_fmri value='svc:/network/physical:default'/>
+      </dependency>
+
+      <exec_method type='method' name='start' exec='%(prefix)s/sbin/cherokee -d' timeout_seconds='60'>
+	<method_context><method_credential user='root' group='root' /></method_context>
+      </exec_method>
+
+      <exec_method type='method' name='stop' exec='kill `cat %(prefix)s/var/run/cherokee.pid`' timeout_seconds='60'>
+	<method_context><method_credential user='root' group='root' /></method_context>
+      </exec_method>
+
+      <exec_method type='method' name='refresh' exec='kill -HUP `cat %(prefix)s/var/run/cherokee.pid`' timeout_seconds='60'>
+	<method_context><method_credential user='root' group='root' /></method_context>
+      </exec_method>
+
+      <property_group name='startd' type='framework'>
+	<propval name='duration' type='astring' value='contract'/>
+	<propval name='ignore_error' type='astring' value='core,signal' />
+      </property_group>
+
+    </instance>
+
+    <template>
+      <common_name><loctext xml:lang='C'>Advanced and Fast Web Server</loctext></common_name>
+      <documentation>
+	<doc_link name='www.cherokee-project.com' uri='http://www.cherokee-project.com/doc/' />
+      </documentation>
+    </template>
+  </service>
+</service_bundle>
 """
 
 INITD_SH = """\
@@ -336,7 +383,21 @@ def cherokee_unpack (latest_local):
         return None
 
     # Look for the src directory
-    return cherokee_find_unpacked()
+    path = cherokee_find_unpacked()
+    if not path:
+        return
+
+    # Works around clock issues
+    touch = False
+    for f in [os.path.join (path, x) for x in os.listdir (path)]:
+        if os.stat(f)[stat.ST_MTIME] > time.time():
+            touch = True
+            break
+
+    if touch:
+        exe ("find '%s' -exec touch '{}' \;" %(path))
+
+    return path
 
 
 def cherokee_compile (src_dir):
@@ -383,8 +444,8 @@ def cherokee_set_initd():
     if not proceed:
         return
 
-    vars = globals()
-    vars.update (locals())
+    variables = globals()
+    variables.update (locals())
 
     # MacOS X
     if sys.platform == 'darwin':
@@ -392,7 +453,7 @@ def cherokee_set_initd():
         plist_fp = os.path.join (prefix,    "launchd-cherokee.plist")
 
         # Write the plist file
-        txt = LAUNCHD_PLIST %(vars)
+        txt = LAUNCHD_PLIST %(variables)
         f = open (tmp_fp, 'w+')
         f.write (txt)
         f.close()
@@ -405,6 +466,36 @@ def cherokee_set_initd():
         # Let launchd know about it
         exe_sudo ("launchctl load -w '%s'" %(plist_fp))
         exe_sudo ("launchctl start org.cherokee.webserver")
+        return
+
+    # Solaris
+    if sys.platform.startswith('sunos'):
+        def smf_present():
+            return (os.access ("/etc/svc/volatile/repository_door", os.R_OK) and
+                    not os.path.isfile ("/etc/svc/volatile/repository_door"))
+
+        variables['prefix_var'] = os.path.join (prefix, "var")
+
+        tmp_fp = os.path.join (BUILD_DIR, "http-cherokee.xml")
+        xml_fp = "/var/svc/manifest/network/http-cherokee.xml"
+
+        # Write the plist file
+        txt = SOLARIS_SVC %(variables)
+        f = open (tmp_fp, 'w+')
+        f.write (txt)
+        f.close()
+
+        # Permissions
+        exe_sudo ("cp '%s' '%s'" %(tmp_fp, xml_fp))
+        exe_sudo ("chown root '%s'" %(xml_fp))
+        exe_sudo ("chgrp sys  '%s'" %(xml_fp))
+
+        # Let launchd know about it
+        if smf_present():
+            exe_sudo ("/usr/sbin/svccfg import '%s'" %(xml_fp))
+            exe_sudo ("/usr/sbin/svcadm enable svc:/network/http:cherokee")
+        else:
+            print ("INFO: Skipping SVC, SMF not present")
         return
 
     # Init.d
@@ -449,7 +540,7 @@ def cherokee_set_initd():
         exe_sudo ("rm -f '%s' '%s' '%s' '%s' '%s'" %(tmp_fp, sh_fp, initd_fp, rcS_fp, rcK_fp))
 
         # Write the init.d file
-        txt = INITD_SH %(vars)
+        txt = INITD_SH %(variables)
         f = open (tmp_fp, 'w+')
         f.write (txt)
         f.close()
