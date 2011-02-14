@@ -194,6 +194,21 @@ fi
 exit 0
 """
 
+BSD_INIT = """\
+#!/bin/sh
+
+. /etc/rc.subr
+
+name="cherokee"
+rcvar="`set_rcvar`"
+command="%(prefix)s/sbin/cherokee"
+
+load_rc_config $name
+command_args="-d"
+
+run_rc_command "$1"
+"""
+
 
 # Globals
 #
@@ -497,6 +512,25 @@ def cherokee_set_initd():
             exe_sudo ("/usr/sbin/svcadm enable svc:/network/http:cherokee")
         else:
             print ("INFO: Skipping SVC, SMF not present")
+        return
+
+    # BSD
+    if 'bsd' in sys.platform.lower():
+        rcd_fp = '/etc/rc.d/cherokee'
+
+        # Preliminary clean up
+        exe_sudo ("rm -f '%s'"%(rcd_fp))
+
+        # Write the init.d file
+        txt = BSD_INIT %(variables)
+        f = open (rcd_fp, 'w+')
+        f.write (txt)
+        f.close()
+
+        # Permissions
+        exe_sudo ("chown root '%s'" %(rcd_fp))
+        exe_sudo ("chmod 555 '%s'"  %(rcd_fp))
+
         return
 
     # Init.d
